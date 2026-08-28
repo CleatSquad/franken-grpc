@@ -109,7 +109,6 @@ status):
 | anything else (5xx, ...) | `Internal` |
 
 The response body (read up to 1MB) becomes the gRPC error message.
->>>>>>> dad4201 (docs: document metadata forwarding, unary/streaming caveat and HTTP-to-gRPC error mapping)
 
 ## Image
 
