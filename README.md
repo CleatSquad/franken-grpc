@@ -154,15 +154,79 @@ if (str_starts_with($_SERVER['REQUEST_URI'], '/mypackage.MyService/')) {
 
 ### Symfony
 
-Route the `/{package}.{Service}/{Method}` path pattern to a controller that
-reads `$request->getContent()` as the raw protobuf body and returns a
-framed protobuf response with `Content-Type: application/grpc+proto`.
+`/{package}.{Service}/{Method}` isn't a placeholder pattern — it's a literal
+path where the first segment happens to contain dots. A single route with a
+permissive requirement on that segment covers every method:
+
+```yaml
+# config/routes.yaml
+grpc_bridge:
+    path: /{packageService}/{method}
+    controller: App\Controller\GrpcController::handle
+    methods: [POST]
+    requirements:
+        packageService: '.+\..+'
+```
+
+```php
+use CleatSquad\GrpcFrameCodec\GrpcFrameCodec;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class GrpcController
+{
+    public function __construct(private readonly GrpcFrameCodec $codec) {}
+
+    public function handle(Request $request, string $packageService, string $method): Response
+    {
+        $requestBytes = $request->getContent(); // raw protobuf, unframed
+        $responseBytes = $this->dispatch("$packageService/$method", $requestBytes);
+
+        return new Response($this->codec->encode($responseBytes), 200, [
+            'Content-Type' => GrpcFrameCodec::CONTENT_TYPE,
+        ]);
+    }
+}
+```
 
 ### Laravel
 
-Same shape via a raw route (`Route::post('/{package}.{service}/{method}', ...)`
-with `$request->getContent()`), bypassing Laravel's JSON middleware for that
-route — the body is binary protobuf, not JSON.
+Same shape, via a raw route with an inline constraint instead of a
+requirements block:
+
+```php
+// routes/api.php
+use App\Http\Controllers\GrpcController;
+
+Route::post('/{packageService}/{method}', [GrpcController::class, 'handle'])
+    ->where('packageService', '.+\..+');
+```
+
+```php
+use CleatSquad\GrpcFrameCodec\GrpcFrameCodec;
+use Illuminate\Http\Request;
+
+class GrpcController extends Controller
+{
+    public function __construct(private readonly GrpcFrameCodec $codec) {}
+
+    public function handle(Request $request, string $packageService, string $method)
+    {
+        $requestBytes = $request->getContent(); // raw protobuf, unframed — not JSON
+        $responseBytes = $this->dispatch("$packageService/$method", $requestBytes);
+
+        return response($this->codec->encode($responseBytes))
+            ->header('Content-Type', GrpcFrameCodec::CONTENT_TYPE);
+    }
+}
+```
+
+`$request->getContent()` returns the raw body regardless of middleware in
+both cases — no JSON-parsing middleware runs on it by default in either
+framework — but if your app registers global body-parsing middleware
+(a form-data or JSON transformer applied to every request), exclude this
+route from it: the body is binary protobuf, parsing it as anything else
+will corrupt it.
 
 ### Magento 2
 
