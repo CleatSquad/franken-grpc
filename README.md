@@ -62,6 +62,26 @@ gRPC client (HTTP/2)
 | `PHP_BACKEND_URL` | Root URL of the PHP backend | `http://app:8080` |
 | `GRPC_PORT` | gRPC/HTTP2 listen port | `:9090` |
 
+## Health check
+
+franken-grpc registers the standard [gRPC Health Checking
+Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md)
+(`grpc.health.v1.Health`) and reports `SERVING` as soon as it starts —
+independent of whether the PHP backend is actually reachable, since the
+relay has no way to probe it without picking an arbitrary method to call.
+Check it with
+[`grpc_health_probe`](https://github.com/grpc-ecosystem/grpc-health-probe):
+
+```bash
+grpc_health_probe -addr=127.0.0.1:9090
+# status: SERVING
+```
+
+Note: the relay does not expose the gRPC reflection service, so
+`grpcurl` needs an explicit `-proto` for the standard health check
+message too — plain `grpcurl -plaintext 127.0.0.1:9090 list` will not
+discover this (or any) service.
+
 ## Image
 
 | Registry | Image | Platforms |
