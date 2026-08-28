@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "gomod",
+    "dockerfile",
+    "github-actions"
+  ],
+  "packageRules": [
+    {
+      "description": "Group Go module updates together",
+      "matchManagers": ["gomod"],
+      "groupName": "go dependencies"
+    },
+    {
+      "description": "Group Dockerfile base image updates together",
+      "matchManagers": ["dockerfile"],
+      "groupName": "docker base images"
+    }
+  ]
+}
