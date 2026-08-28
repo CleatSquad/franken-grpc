@@ -164,6 +164,99 @@ Same shape via a raw route (`Route::post('/{package}.{service}/{method}', ...)`
 with `$request->getContent()`), bypassing Laravel's JSON middleware for that
 route — the body is binary protobuf, not JSON.
 
+### Magento 2
+
+Magento's front controller routes on `/{frontName}/{controller}/{action}` —
+it cannot express a path containing dots like
+`/mypackage.MyService/GetProduct`. A custom `RouterInterface` is needed
+instead of `routes.xml`:
+
+```php
+// Model/Router.php
+use Magento\Framework\App\ActionFactory;
+use Magento\Framework\App\ActionInterface;
+use Magento\Framework\App\RequestInterface;
+use Magento\Framework\App\RouterInterface;
+
+class Router implements RouterInterface
+{
+    public function __construct(private readonly ActionFactory $actionFactory) {}
+
+    public function match(RequestInterface $request): ?ActionInterface
+    {
+        if ($request->getPathInfo() !== '/mypackage.MyService/GetProduct') {
+            return null;
+        }
+
+        return $this->actionFactory->create(\Vendor\Module\Controller\Grpc\GetProduct::class);
+    }
+}
+```
+
+```xml
+<!-- etc/frontend/di.xml -->
+<type name="Magento\Framework\App\RouterList">
+    <arguments>
+        <argument name="routerList" xsi:type="array">
+            <item name="mymodule_grpc" xsi:type="array">
+                <item name="class" xsi:type="string">Vendor\Module\Model\Router</item>
+                <item name="sortOrder" xsi:type="string">1</item>
+            </item>
+        </argument>
+    </arguments>
+</type>
+```
+
+The controller needs `CsrfAwareActionInterface` — Magento's standard
+form-key validation on `Action` controllers has no meaning for
+machine-to-machine gRPC traffic, and would otherwise redirect every call
+with a 302:
+
+```php
+use CleatSquad\GrpcFrameCodec\GrpcFrameCodec;
+use Magento\Framework\App\Action\Action;
+use Magento\Framework\App\Action\HttpPostActionInterface;
+use Magento\Framework\App\CsrfAwareActionInterface;
+use Magento\Framework\App\Request\InvalidRequestException;
+use Magento\Framework\App\RequestInterface;
+
+class GetProduct extends Action implements HttpPostActionInterface, CsrfAwareActionInterface
+{
+    public function __construct(Context $context, private readonly GrpcFrameCodec $codec)
+    {
+        parent::__construct($context);
+    }
+
+    public function execute()
+    {
+        $requestBytes = $this->getRequest()->getContent(); // raw protobuf, unframed
+        $responseBytes = /* decode, handle, encode your response message */;
+
+        $response = $this->getResponse();
+        $response->setHeader('Content-Type', GrpcFrameCodec::CONTENT_TYPE, true);
+        $response->setBody($this->codec->encode($responseBytes));
+
+        return $response;
+    }
+
+    public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException
+    {
+        return null;
+    }
+
+    public function validateForCsrf(RequestInterface $request): ?bool
+    {
+        return true;
+    }
+}
+```
+
+Also watch for Caddy's own defaults if you're serving Magento through
+FrankenPHP: `encode zstd br gzip` will silently compress this response and
+corrupt the frame (exclude the gRPC-bridge path from it), and
+`auto_https` will redirect a plain-HTTP `PHP_BACKEND_URL` call to HTTPS
+unless the site also declares an explicit `http://` address.
+
 ## Build
 
 ```bash
