@@ -141,8 +141,8 @@ docker run -p 9090:9090 \
 
 The framing helper (`frame_grpc_message` below) is a single small class if
 you'd rather not hand-roll it:
-[`cleatsquad/franken-grpc-codec-php`](https://github.com/CleatSquad/franken-grpc-codec-php)
-(`composer require cleatsquad/franken-grpc-codec-php`) — extracted from a
+[`cleatsquad/php-franken-grpc-codec`](https://github.com/CleatSquad/php-franken-grpc-codec)
+(`composer require cleatsquad/php-franken-grpc-codec`) — extracted from a
 real integration (a Magento module bridging this relay to
 `ProductRepositoryInterface`), dependency-free, PHP 8.1+.
 
