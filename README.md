@@ -161,15 +161,205 @@ if (str_starts_with($_SERVER['REQUEST_URI'], '/mypackage.MyService/')) {
 
 ### Symfony
 
-Route the `/{package}.{Service}/{Method}` path pattern to a controller that
-reads `$request->getContent()` as the raw protobuf body and returns a
-framed protobuf response with `Content-Type: application/grpc+proto`.
+Runnable version, actually tested end-to-end against a real `franken-grpc`
+container: [`examples/symfony/`](examples/symfony/).
+
+`/{package}.{Service}/{Method}` isn't a placeholder pattern — it's a literal
+path where the first segment happens to contain dots. A single route with a
+permissive requirement on that segment covers every method:
+
+```yaml
+# config/routes.yaml
+grpc_bridge:
+    path: /{packageService}/{method}
+    controller: App\Controller\GrpcController::handle
+    methods: [POST]
+    requirements:
+        packageService: '.+\..+'
+```
+
+```php
+use CleatSquad\GrpcFrameCodec\GrpcFrameCodec;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class GrpcController
+{
+    public function __construct(private readonly GrpcFrameCodec $codec) {}
+
+    public function handle(Request $request, string $packageService, string $method): Response
+    {
+        $requestBytes = $request->getContent(); // raw protobuf, unframed
+        $responseBytes = $this->dispatch("$packageService/$method", $requestBytes);
+
+        return new Response($this->codec->encode($responseBytes), 200, [
+            'Content-Type' => GrpcFrameCodec::CONTENT_TYPE,
+        ]);
+    }
+}
+```
+
+Symfony's autowiring only auto-registers classes under your `App\` service
+namespace, so it won't find `GrpcFrameCodec` on its own — register it
+explicitly or the container fails with "no such service exists":
+
+```yaml
+# config/services.yaml
+services:
+    App\:
+        resource: '../src/'
+
+    CleatSquad\GrpcFrameCodec\GrpcFrameCodec: ~
+```
 
 ### Laravel
 
-Same shape via a raw route (`Route::post('/{package}.{service}/{method}', ...)`
-with `$request->getContent()`), bypassing Laravel's JSON middleware for that
-route — the body is binary protobuf, not JSON.
+Runnable version, actually tested end-to-end against a real `franken-grpc`
+container: [`examples/laravel/`](examples/laravel/).
+
+Same shape, via a raw route with an inline constraint instead of a
+requirements block. Two Laravel-specific things to disarm: the `api`
+routing group prefixes every path with `/api` by default (pass
+`apiPrefix: ''` to `withRouting()` in `bootstrap/app.php`, or the real
+path won't match), and the `web` group runs CSRF verification — put this
+route on `api`, not `web`, or the CSRF middleware rejects the POST outright.
+
+```php
+// bootstrap/app.php
+->withRouting(
+    web: __DIR__.'/../routes/web.php',
+    api: __DIR__.'/../routes/api.php',
+    apiPrefix: '', // otherwise every path below is under /api/...
+    commands: __DIR__.'/../routes/console.php',
+)
+```
+
+```php
+// routes/api.php
+use App\Http\Controllers\GrpcController;
+
+Route::post('/{packageService}/{method}', [GrpcController::class, 'handle'])
+    ->where('packageService', '.+\..+');
+```
+
+```php
+use CleatSquad\GrpcFrameCodec\GrpcFrameCodec;
+use Illuminate\Http\Request;
+
+class GrpcController extends Controller
+{
+    public function __construct(private readonly GrpcFrameCodec $codec) {}
+
+    public function handle(Request $request, string $packageService, string $method)
+    {
+        $requestBytes = $request->getContent(); // raw protobuf, unframed — not JSON
+        $responseBytes = $this->dispatch("$packageService/$method", $requestBytes);
+
+        return response($this->codec->encode($responseBytes))
+            ->header('Content-Type', GrpcFrameCodec::CONTENT_TYPE);
+    }
+}
+```
+
+`$request->getContent()` returns the raw body regardless of middleware in
+both cases — no JSON-parsing middleware runs on it by default in either
+framework — but if your app registers global body-parsing middleware
+(a form-data or JSON transformer applied to every request), exclude this
+route from it: the body is binary protobuf, parsing it as anything else
+will corrupt it.
+
+### Magento 2
+
+Magento's front controller routes on `/{frontName}/{controller}/{action}` —
+it cannot express a path containing dots like
+`/mypackage.MyService/GetProduct`. A custom `RouterInterface` is needed
+instead of `routes.xml`:
+
+```php
+// Model/Router.php
+use Magento\Framework\App\ActionFactory;
+use Magento\Framework\App\ActionInterface;
+use Magento\Framework\App\RequestInterface;
+use Magento\Framework\App\RouterInterface;
+
+class Router implements RouterInterface
+{
+    public function __construct(private readonly ActionFactory $actionFactory) {}
+
+    public function match(RequestInterface $request): ?ActionInterface
+    {
+        if ($request->getPathInfo() !== '/mypackage.MyService/GetProduct') {
+            return null;
+        }
+
+        return $this->actionFactory->create(\Vendor\Module\Controller\Grpc\GetProduct::class);
+    }
+}
+```
+
+```xml
+<!-- etc/frontend/di.xml -->
+<type name="Magento\Framework\App\RouterList">
+    <arguments>
+        <argument name="routerList" xsi:type="array">
+            <item name="mymodule_grpc" xsi:type="array">
+                <item name="class" xsi:type="string">Vendor\Module\Model\Router</item>
+                <item name="sortOrder" xsi:type="string">1</item>
+            </item>
+        </argument>
+    </arguments>
+</type>
+```
+
+The controller needs `CsrfAwareActionInterface` — Magento's standard
+form-key validation on `Action` controllers has no meaning for
+machine-to-machine gRPC traffic, and would otherwise redirect every call
+with a 302:
+
+```php
+use CleatSquad\GrpcFrameCodec\GrpcFrameCodec;
+use Magento\Framework\App\Action\Action;
+use Magento\Framework\App\Action\HttpPostActionInterface;
+use Magento\Framework\App\CsrfAwareActionInterface;
+use Magento\Framework\App\Request\InvalidRequestException;
+use Magento\Framework\App\RequestInterface;
+
+class GetProduct extends Action implements HttpPostActionInterface, CsrfAwareActionInterface
+{
+    public function __construct(Context $context, private readonly GrpcFrameCodec $codec)
+    {
+        parent::__construct($context);
+    }
+
+    public function execute()
+    {
+        $requestBytes = $this->getRequest()->getContent(); // raw protobuf, unframed
+        $responseBytes = /* decode, handle, encode your response message */;
+
+        $response = $this->getResponse();
+        $response->setHeader('Content-Type', GrpcFrameCodec::CONTENT_TYPE, true);
+        $response->setBody($this->codec->encode($responseBytes));
+
+        return $response;
+    }
+
+    public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException
+    {
+        return null;
+    }
+
+    public function validateForCsrf(RequestInterface $request): ?bool
+    {
+        return true;
+    }
+}
+```
+
+Also watch for Caddy's own defaults if you're serving Magento through
+FrankenPHP: `encode zstd br gzip` will silently compress this response and
+corrupt the frame (exclude the gRPC-bridge path from it), and
+`auto_https` will redirect a plain-HTTP `PHP_BACKEND_URL` call to HTTPS
+unless the site also declares an explicit `http://` address.
 
 ## Build
 
