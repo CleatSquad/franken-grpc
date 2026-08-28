@@ -154,6 +154,9 @@ if (str_starts_with($_SERVER['REQUEST_URI'], '/mypackage.MyService/')) {
 
 ### Symfony
 
+Runnable version, actually tested end-to-end against a real `franken-grpc`
+container: [`examples/symfony/`](examples/symfony/).
+
 `/{package}.{Service}/{Method}` isn't a placeholder pattern — it's a literal
 path where the first segment happens to contain dots. A single route with a
 permissive requirement on that segment covers every method:
@@ -203,6 +206,9 @@ services:
 ```
 
 ### Laravel
+
+Runnable version, actually tested end-to-end against a real `franken-grpc`
+container: [`examples/laravel/`](examples/laravel/).
 
 Same shape, via a raw route with an inline constraint instead of a
 requirements block. Two Laravel-specific things to disarm: the `api`

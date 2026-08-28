@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package echo;
+
+option php_namespace = "EchoGrpc";
+option php_metadata_namespace = "EchoGrpc\\GPBMetadata";
+
+service EchoService {
+  rpc Echo (EchoRequest) returns (EchoResponse);
+}
+
+message EchoRequest {
+  string message = 1;
+}
+
+message EchoResponse {
+  string message = 1;
+  string framework = 2;
+}
