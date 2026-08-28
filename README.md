@@ -54,6 +54,15 @@ gRPC client (HTTP/2)
   the other side of the relay still get whatever compression `grpc-go`
   negotiates natively, since that segment is real HTTP/2, untouched by this
   restriction.
+- Only one piece of gRPC metadata is forwarded to the backend today: the
+  `x-user-id` key, sent as an `X-User-Id` HTTP header. Any other metadata a
+  client sends is not passed through — there is no generic metadata bridge.
+- **Unary vs. streaming is not known to the relay** — that distinction lives
+  in your `.proto`, not in anything franken-grpc can see. It relays every
+  gRPC frame the PHP backend sends. For a call the client treats as unary,
+  gRPC-go's `Invoke()` reads only the *first* frame and silently discards
+  the rest — no error. If your backend is meant to answer a "unary" RPC,
+  make sure it emits exactly one frame.
 
 ## Configuration
 
@@ -81,6 +90,25 @@ Note: the relay does not expose the gRPC reflection service, so
 `grpcurl` needs an explicit `-proto` for the standard health check
 message too — plain `grpcurl -plaintext 127.0.0.1:9090 list` will not
 discover this (or any) service.
+
+## Error mapping
+
+A non-`200` HTTP response from the PHP backend becomes a gRPC error, with
+the code derived from the HTTP status your backend actually sent — no new
+contract to implement, but nothing more precise is possible either (there
+is no way today for PHP to signal an exact gRPC code beyond its HTTP
+status):
+
+| PHP HTTP status | gRPC code |
+|---|---|
+| 401 | `Unauthenticated` |
+| 403 | `PermissionDenied` |
+| 404 | `NotFound` |
+| 429 | `ResourceExhausted` |
+| other 4xx | `InvalidArgument` |
+| anything else (5xx, ...) | `Internal` |
+
+The response body (read up to 1MB) becomes the gRPC error message.
 
 ## Image
 
