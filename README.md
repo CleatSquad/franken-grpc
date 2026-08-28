@@ -16,7 +16,9 @@ implementing HTTP/2 or protobuf framing themselves.
 PHP has no first-class gRPC server. `franken-grpc` is the small piece that
 makes gRPC (streaming included) reachable in front of any PHP backend: it
 knows nothing about your `.proto` contracts — it forwards
-`/{package}.{Service}/{Method}` calls verbatim.
+`/{package}.{Service}/{Method}` calls, routing each one to your backend
+(the per-direction message framing differs — see
+[How it works](#how-it-works)).
 
 ## How it works
 
