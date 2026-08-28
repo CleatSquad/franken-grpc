@@ -189,6 +189,19 @@ class GrpcController
 }
 ```
 
+Symfony's autowiring only auto-registers classes under your `App\` service
+namespace, so it won't find `GrpcFrameCodec` on its own — register it
+explicitly or the container fails with "no such service exists":
+
+```yaml
+# config/services.yaml
+services:
+    App\:
+        resource: '../src/'
+
+    CleatSquad\GrpcFrameCodec\GrpcFrameCodec: ~
+```
+
 ### Laravel
 
 Same shape, via a raw route with an inline constraint instead of a
