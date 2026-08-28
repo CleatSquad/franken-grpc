@@ -192,7 +192,21 @@ class GrpcController
 ### Laravel
 
 Same shape, via a raw route with an inline constraint instead of a
-requirements block:
+requirements block. Two Laravel-specific things to disarm: the `api`
+routing group prefixes every path with `/api` by default (pass
+`apiPrefix: ''` to `withRouting()` in `bootstrap/app.php`, or the real
+path won't match), and the `web` group runs CSRF verification — put this
+route on `api`, not `web`, or the CSRF middleware rejects the POST outright.
+
+```php
+// bootstrap/app.php
+->withRouting(
+    web: __DIR__.'/../routes/web.php',
+    api: __DIR__.'/../routes/api.php',
+    apiPrefix: '', // otherwise every path below is under /api/...
+    commands: __DIR__.'/../routes/console.php',
+)
+```
 
 ```php
 // routes/api.php
