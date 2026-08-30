@@ -253,6 +253,9 @@ func main() {
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 
+	healthCtx, stopHealthPoll := context.WithCancel(context.Background())
+	go pollBackendHealth(healthCtx, healthServer, httpClient)
+
 	go func() {
 		log.Printf("franken-grpc listening on %s (backend: %s)", grpcPort, basePHPBackendURL)
 		if err := grpcServer.Serve(lis); err != nil {
@@ -265,6 +268,7 @@ func main() {
 	<-sigCh
 
 	log.Println("Shutting down franken-grpc gracefully...")
+	stopHealthPoll()
 	grpcServer.GracefulStop()
 }
 

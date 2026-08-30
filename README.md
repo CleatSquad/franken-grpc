@@ -70,15 +70,21 @@ gRPC client (HTTP/2)
 |---|---|---|
 | `PHP_BACKEND_URL` | Root URL of the PHP backend | `http://app:8080` |
 | `GRPC_PORT` | gRPC/HTTP2 listen port | `:9090` |
+| `PHP_BACKEND_HEALTH_PATH` | Path probed on the PHP backend for the health check below | `/` |
+| `PHP_BACKEND_HEALTH_INTERVAL` | How often the PHP backend is probed | `5s` |
+| `PHP_BACKEND_HEALTH_TIMEOUT` | Per-probe timeout | `2s` |
 
 ## Health check
 
 franken-grpc registers the standard [gRPC Health Checking
 Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md)
-(`grpc.health.v1.Health`) and reports `SERVING` as soon as it starts —
-independent of whether the PHP backend is actually reachable, since the
-relay has no way to probe it without picking an arbitrary method to call.
-Check it with
+(`grpc.health.v1.Health`) and reports `SERVING` as soon as it starts. A
+background goroutine then probes the PHP backend on `PHP_BACKEND_HEALTH_PATH`
+(`HEAD $PHP_BACKEND_URL$PHP_BACKEND_HEALTH_PATH`, `PHP_BACKEND_HEALTH_INTERVAL`
+apart) and keeps the status in sync: any HTTP response — even a 404 on an
+unrouted path — proves the PHP process is up and reporting is left at
+`SERVING`; a transport-level failure (connection refused, timeout) flips it
+to `NOT_SERVING`. Check it with
 [`grpc_health_probe`](https://github.com/grpc-ecosystem/grpc-health-probe):
 
 ```bash
