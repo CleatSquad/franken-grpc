@@ -1,5 +1,5 @@
 # Stage 1: build the static Go binary.
-FROM golang:1.23-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /build
 COPY go.mod go.sum ./
@@ -8,7 +8,7 @@ COPY *.go ./
 RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /usr/local/bin/franken-grpc .
 
 # Stage 2: minimal runtime image.
-FROM alpine:3.20
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates
 
